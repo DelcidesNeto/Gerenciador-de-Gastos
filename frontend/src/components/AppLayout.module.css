@@ -1,0 +1,100 @@
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  padding: 1.5rem 1.1rem;
+  border-right: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
+  position: sticky;
+  top: 0;
+  height: 100vh;
+}
+
+.brand {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0 0.4rem;
+}
+
+.brandMark {
+  font-family: var(--font-display);
+  font-size: 1.55rem;
+  line-height: 1.1;
+}
+
+.brandSub {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.links {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  flex: 1;
+}
+
+.links a,
+.mobileNav a {
+  padding: 0.7rem 0.85rem;
+  border-radius: 10px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.links a:hover,
+.mobileNav a:hover {
+  background: var(--bg-muted);
+  color: var(--text);
+}
+
+.links a.active,
+.mobileNav a.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+:global([data-theme='dark']) .links a.active,
+:global([data-theme='dark']) .mobileNav a.active {
+  color: #7dffc4;
+}
+
+.footer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.user {
+  font-size: 0.92rem;
+  color: var(--text-muted);
+  padding: 0 0.35rem 0.35rem;
+}
+
+.mobileNav {
+  display: none;
+}
+
+@media (max-width: 860px) {
+  .nav {
+    display: none;
+  }
+
+  .mobileNav {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    position: fixed;
+    inset: auto 0 0 0;
+    background: color-mix(in srgb, var(--bg-elevated) 96%, transparent);
+    border-top: 1px solid var(--border);
+    padding: 0.4rem;
+    backdrop-filter: blur(10px);
+    z-index: 20;
+  }
+
+  .mobileNav a {
+    text-align: center;
+    font-size: 0.78rem;
+  }
+}

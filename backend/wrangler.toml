@@ -1,0 +1,19 @@
+name = "gerenciador-de-gastos-api"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+# remote = true → em `wrangler dev`, usa o bucket R2 real da Cloudflare
+# (sem isso, os dados ficam só no R2 simulado local e não aparecem no painel)
+[[r2_buckets]]
+binding = "APPLICATIONS"
+bucket_name = "applications"
+preview_bucket_name = "applications"
+remote = true
+
+[vars]
+CORS_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173,https://delcidesneto.github.io"
+R2_PREFIX = "gerenciador_de_gastos"
+
+# Secrets (definidos via `wrangler secret put`):
+# JWT_SECRET

@@ -34,7 +34,8 @@ jobs:
         run: npm ci
       - name: Build
         env:
-          VITE_API_URL: ${{ secrets.VITE_API_URL }}
+          # URL pública da API (Cloudflare Worker) — não é segredo
+          VITE_API_URL: https://gerenciador-de-gastos-api.delcides-c-c-neto.workers.dev/api
           VITE_BASE_PATH: /${{ github.event.repository.name }}/
         run: npm run build
       - name: SPA fallback for GitHub Pages

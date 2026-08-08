@@ -1,6 +1,11 @@
 import { Hono } from 'hono';
 import type { AppVariables, Env } from '../env';
-import { loginSchema, registerSchema } from '../models/schemas';
+import {
+  changePasswordSchema,
+  loginSchema,
+  registerSchema,
+  updateProfileSchema,
+} from '../models/schemas';
 import { authMiddleware } from '../middleware/auth';
 import { AuthService } from '../services/authService';
 
@@ -19,11 +24,25 @@ authRoutes.post('/login', async (c) => {
 });
 
 authRoutes.post('/logout', authMiddleware, async (c) => {
-  // JWT stateless — o cliente descarta o token.
   return c.json({ ok: true });
 });
 
 authRoutes.get('/me', authMiddleware, async (c) => {
   const user = await new AuthService(c.env).getMe(c.get('userId'));
   return c.json({ user });
+});
+
+authRoutes.put('/me', authMiddleware, async (c) => {
+  const body = updateProfileSchema.parse(await c.req.json());
+  if (body.name == null && body.email == null) {
+    return c.json({ error: 'Informe nome e/ou e-mail para atualizar' }, 400);
+  }
+  const result = await new AuthService(c.env).updateProfile(c.get('userId'), body);
+  return c.json(result);
+});
+
+authRoutes.put('/me/password', authMiddleware, async (c) => {
+  const body = changePasswordSchema.parse(await c.req.json());
+  const result = await new AuthService(c.env).changePassword(c.get('userId'), body);
+  return c.json(result);
 });

@@ -48,15 +48,18 @@ Sem login, o `wrangler dev` usa um R2 **simulado** no computador — os arquivos
 | `JWT_SECRET` | Segredo forte para assinar JWTs |
 | `CORS_ORIGINS` | Origens permitidas, separadas por vírgula |
 | `R2_PREFIX` | Prefixo no bucket (padrão: `gerenciador_de_gastos`) |
+| `ADMIN_EMAIL` | E-mail promovido a administrador |
+| `ADMIN_PASSWORD` | Senha do admin no ambiente (cria a conta no 1º login e aceita/atualiza essa senha) |
 
 Binding R2 no `wrangler.toml`: `APPLICATIONS` → bucket `applications`.
 
 ```bash
 cd backend
 cp .dev.vars.example .dev.vars
-# edite JWT_SECRET
+# edite JWT_SECRET, ADMIN_EMAIL e ADMIN_PASSWORD
 
 npx wrangler secret put JWT_SECRET
+npx wrangler secret put ADMIN_PASSWORD
 # opcional em produção:
 npx wrangler secret put CORS_ORIGINS
 ```

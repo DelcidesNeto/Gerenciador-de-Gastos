@@ -13,15 +13,39 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import { useTheme } from '../context/ThemeContext';
 import { formatCurrency, formatMonth } from '../utils/format';
 
 const COLORS = ['#0f6b4c', '#1d9a6c', '#3ecf97', '#78a890', '#c4a35a', '#b42318', '#2f6fed', '#8b5cf6'];
+
+function useChartTheme() {
+  const { theme } = useTheme();
+  const styles = getComputedStyle(document.documentElement);
+  const read = (name: string, fallback: string) =>
+    styles.getPropertyValue(name).trim() || fallback;
+
+  // Dependência em `theme` garante releitura após trocar claro/escuro
+  void theme;
+
+  return {
+    // No escuro, --text-muted ainda fica fraco sobre o fundo do gráfico
+    tick:
+      theme === 'dark'
+        ? read('--text', '#eceef2')
+        : read('--text-muted', '#5a6b62'),
+    grid: read('--border', theme === 'dark' ? '#2c323c' : '#cfdcd4'),
+    tooltipBg: read('--bg-elevated', theme === 'dark' ? '#15181e' : '#ffffff'),
+    tooltipBorder: read('--border', theme === 'dark' ? '#2c323c' : '#cfdcd4'),
+    tooltipText: read('--text', theme === 'dark' ? '#eceef2' : '#14201a'),
+  };
+}
 
 type CategoryChartProps = {
   data: Record<string, number>;
 };
 
 export function CategoryPieChart({ data }: CategoryChartProps) {
+  const chart = useChartTheme();
   const rows = Object.entries(data).map(([name, value]) => ({ name, value }));
   if (rows.length === 0) return <div className="empty">Sem dados para o gráfico</div>;
 
@@ -34,8 +58,18 @@ export function CategoryPieChart({ data }: CategoryChartProps) {
               <Cell key={rows[i].name} fill={COLORS[i % COLORS.length]} />
             ))}
           </Pie>
-          <Tooltip formatter={(v) => formatCurrency(Number(v ?? 0))} />
-          <Legend />
+          <Tooltip
+            formatter={(v) => formatCurrency(Number(v ?? 0))}
+            contentStyle={{
+              background: chart.tooltipBg,
+              border: `1px solid ${chart.tooltipBorder}`,
+              borderRadius: 10,
+              color: chart.tooltipText,
+            }}
+            itemStyle={{ color: chart.tooltipText }}
+            labelStyle={{ color: chart.tooltipText }}
+          />
+          <Legend wrapperStyle={{ color: chart.tick }} />
         </PieChart>
       </ResponsiveContainer>
     </div>
@@ -47,16 +81,36 @@ type MonthBarsProps = {
 };
 
 export function MonthlyBarChart({ data }: MonthBarsProps) {
+  const chart = useChartTheme();
   const rows = data.map((d) => ({ ...d, label: formatMonth(d.month) }));
   if (rows.length === 0) return <div className="empty">Sem dados para o gráfico</div>;
   return (
     <div className="chart-box">
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={rows}>
-          <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-          <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-          <YAxis tickFormatter={(v) => `${Math.round(v / 1000)}k`} width={40} />
-          <Tooltip formatter={(v) => formatCurrency(Number(v ?? 0))} />
+          <CartesianGrid stroke={chart.grid} strokeDasharray="3 3" opacity={0.7} />
+          <XAxis
+            dataKey="label"
+            tick={{ fontSize: 12, fill: chart.tick }}
+            stroke={chart.grid}
+          />
+          <YAxis
+            tick={{ fontSize: 12, fill: chart.tick }}
+            tickFormatter={(v) => `${Math.round(v / 1000)}k`}
+            width={40}
+            stroke={chart.grid}
+          />
+          <Tooltip
+            formatter={(v) => formatCurrency(Number(v ?? 0))}
+            contentStyle={{
+              background: chart.tooltipBg,
+              border: `1px solid ${chart.tooltipBorder}`,
+              borderRadius: 10,
+              color: chart.tooltipText,
+            }}
+            itemStyle={{ color: chart.tooltipText }}
+            labelStyle={{ color: chart.tooltipText }}
+          />
           <Bar dataKey="total" fill="#0f6b4c" radius={[8, 8, 0, 0]} name="Total" />
         </BarChart>
       </ResponsiveContainer>
@@ -70,15 +124,35 @@ type LineProps = {
 };
 
 export function EvolutionLineChart({ data, name = 'Valor' }: LineProps) {
+  const chart = useChartTheme();
   if (data.length === 0) return <div className="empty">Sem dados para o gráfico</div>;
   return (
     <div className="chart-box">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data}>
-          <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-          <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-          <YAxis tickFormatter={(v) => `${Math.round(v / 1000)}k`} width={40} />
-          <Tooltip formatter={(v) => formatCurrency(Number(v ?? 0))} />
+          <CartesianGrid stroke={chart.grid} strokeDasharray="3 3" opacity={0.7} />
+          <XAxis
+            dataKey="label"
+            tick={{ fontSize: 12, fill: chart.tick }}
+            stroke={chart.grid}
+          />
+          <YAxis
+            tick={{ fontSize: 12, fill: chart.tick }}
+            tickFormatter={(v) => `${Math.round(v / 1000)}k`}
+            width={40}
+            stroke={chart.grid}
+          />
+          <Tooltip
+            formatter={(v) => formatCurrency(Number(v ?? 0))}
+            contentStyle={{
+              background: chart.tooltipBg,
+              border: `1px solid ${chart.tooltipBorder}`,
+              borderRadius: 10,
+              color: chart.tooltipText,
+            }}
+            itemStyle={{ color: chart.tooltipText }}
+            labelStyle={{ color: chart.tooltipText }}
+          />
           <Line type="monotone" dataKey="value" stroke="#1d9a6c" strokeWidth={2.5} dot={false} name={name} />
         </LineChart>
       </ResponsiveContainer>

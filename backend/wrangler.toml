@@ -16,6 +16,8 @@ remote = true
 [vars]
 CORS_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173,https://delcidesneto.github.io"
 R2_PREFIX = "gerenciador_de_gastos"
+ADMIN_EMAIL = "delcides.c.c.neto@gmail.com"
 
 # Secrets (definidos via `wrangler secret put`):
 # JWT_SECRET
+# ADMIN_PASSWORD

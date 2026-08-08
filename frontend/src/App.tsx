@@ -2,6 +2,8 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AuthProvider } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
+import { AccountPage } from './pages/AccountPage';
+import { AdminUsersPage } from './pages/AdminUsersPage';
 import { CategoriesPage } from './pages/CategoriesPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { ExpensesPage } from './pages/ExpensesPage';
@@ -26,6 +28,8 @@ export default function App() {
               <Route path="/categorias" element={<CategoriesPage />} />
               <Route path="/investimentos" element={<InvestmentsPage />} />
               <Route path="/investimentos/:id" element={<InvestmentDetailPage />} />
+              <Route path="/conta" element={<AccountPage />} />
+              <Route path="/admin/usuarios" element={<AdminUsersPage />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

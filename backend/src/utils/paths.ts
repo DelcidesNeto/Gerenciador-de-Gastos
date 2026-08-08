@@ -38,6 +38,10 @@ export function healthProbeKey(prefix: string): string {
   return `${prefix}/_system/health.json`;
 }
 
+export function userPrefix(prefix: string, userId: string): string {
+  return `${prefix}/users/${userId}/`;
+}
+
 export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }

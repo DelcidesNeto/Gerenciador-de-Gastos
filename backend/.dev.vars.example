@@ -1,2 +1,4 @@
 JWT_SECRET=altere-para-um-segredo-longo-e-aleatorio
 CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+ADMIN_EMAIL=seu-email-admin@exemplo.com
+ADMIN_PASSWORD=altere-para-a-senha-do-admin

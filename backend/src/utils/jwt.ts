@@ -28,6 +28,7 @@ export type JwtPayload = {
   sub: string;
   email: string;
   name: string;
+  role: 'admin' | 'user';
   iat: number;
   exp: number;
 };

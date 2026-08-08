@@ -1,7 +1,8 @@
 import { createMiddleware } from 'hono/factory';
 import type { AppVariables, Env } from '../env';
-import { verifyJwt } from '../utils/jwt';
 import { HttpError } from '../repositories/r2Json';
+import { AuthService } from '../services/authService';
+import { verifyJwt } from '../utils/jwt';
 
 export const authMiddleware = createMiddleware<{ Bindings: Env; Variables: AppVariables }>(
   async (c, next) => {
@@ -12,8 +13,21 @@ export const authMiddleware = createMiddleware<{ Bindings: Env; Variables: AppVa
     const token = header.slice(7);
     const payload = await verifyJwt(token, c.env.JWT_SECRET);
     if (!payload) throw new HttpError(401, 'Sessão inválida ou expirada');
-    c.set('userId', payload.sub);
-    c.set('userEmail', payload.email);
+
+    // Confirma role atual no perfil (não confia só no JWT antigo)
+    const profile = await new AuthService(c.env).getProfile(payload.sub);
+    c.set('userId', profile.id);
+    c.set('userEmail', profile.email);
+    c.set('userRole', profile.role);
+    await next();
+  },
+);
+
+export const adminMiddleware = createMiddleware<{ Bindings: Env; Variables: AppVariables }>(
+  async (c, next) => {
+    if (c.get('userRole') !== 'admin') {
+      throw new HttpError(403, 'Acesso restrito a administradores');
+    }
     await next();
   },
 );

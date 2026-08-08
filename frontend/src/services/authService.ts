@@ -1,9 +1,12 @@
-import { apiRequest } from './apiClient';
+import { apiRequest, setToken } from './apiClient';
+
+export type UserRole = 'admin' | 'user';
 
 export type User = {
   id: string;
   name: string;
   email: string;
+  role: UserRole;
   createdAt: string;
 };
 
@@ -27,4 +30,28 @@ export async function logout() {
 
 export async function getMe() {
   return apiRequest<{ user: User }>('/me');
+}
+
+export async function updateProfile(input: { name?: string; email?: string }) {
+  const res = await apiRequest<{ token: string; user: User }>('/me', {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  });
+  setToken(res.token);
+  return res;
+}
+
+export async function changePassword(input: { currentPassword: string; newPassword: string }) {
+  return apiRequest<{ ok: boolean }>('/me/password', {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function listUsers() {
+  return apiRequest<{ users: User[] }>('/admin/users');
+}
+
+export async function deleteUser(id: string) {
+  return apiRequest<{ ok: boolean }>(`/admin/users/${id}`, { method: 'DELETE' });
 }

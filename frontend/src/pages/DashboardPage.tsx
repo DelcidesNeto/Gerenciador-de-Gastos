@@ -53,7 +53,7 @@ export function DashboardPage() {
     <div className="stack">
       <header className="page-header">
         <div>
-          <h1>Olá, {user?.name.split(' ')[0]}</h1>
+          <h1>Olá, {user?.name}</h1>
           <p>Resumo financeiro de {formatMonth(currentMonth())}.</p>
         </div>
       </header>

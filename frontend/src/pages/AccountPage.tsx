@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { ApiError } from '../services/apiClient';
 import { changePassword, updateProfile } from '../services/authService';
@@ -15,6 +15,12 @@ export function AccountPage() {
   const [error, setError] = useState('');
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    setName(user.name);
+    setEmail(user.email);
+  }, [user]);
 
   async function onSaveProfile(e: FormEvent) {
     e.preventDefault();

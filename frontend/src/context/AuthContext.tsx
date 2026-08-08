@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -27,6 +28,14 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const sessionId = useRef(0);
+
+  const applySession = useCallback((nextUser: User | null, token: string | null) => {
+    sessionId.current += 1;
+    setToken(token);
+    setUser(nextUser);
+    return sessionId.current;
+  }, []);
 
   const refreshUser = useCallback(async () => {
     const res = await authApi.getMe();
@@ -39,24 +48,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false);
       return;
     }
+
+    const bootSession = sessionId.current;
+    let cancelled = false;
+
     authApi
       .getMe()
-      .then((res) => setUser(res.user))
-      .catch(() => setToken(null))
-      .finally(() => setLoading(false));
+      .then((res) => {
+        // Ignora se o usuário já saiu, entrou ou cadastrou outra conta enquanto isso carregava
+        if (cancelled || sessionId.current !== bootSession || getToken() !== token) return;
+        setUser(res.user);
+      })
+      .catch(() => {
+        if (cancelled || sessionId.current !== bootSession) return;
+        if (getToken() === token) setToken(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const login = useCallback(async (email: string, password: string) => {
-    const res = await authApi.login({ email, password });
-    setToken(res.token);
-    setUser(res.user);
-  }, []);
+  const login = useCallback(
+    async (email: string, password: string) => {
+      const res = await authApi.login({ email, password });
+      applySession(res.user, res.token);
+      setLoading(false);
+    },
+    [applySession],
+  );
 
-  const register = useCallback(async (name: string, email: string, password: string) => {
-    const res = await authApi.register({ name, email, password });
-    setToken(res.token);
-    setUser(res.user);
-  }, []);
+  const register = useCallback(
+    async (name: string, email: string, password: string) => {
+      const res = await authApi.register({ name, email, password });
+      applySession(res.user, res.token);
+      setLoading(false);
+    },
+    [applySession],
+  );
 
   const logout = useCallback(async () => {
     try {
@@ -64,9 +96,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       /* token pode já estar inválido */
     }
-    setToken(null);
-    setUser(null);
-  }, []);
+    applySession(null, null);
+    setLoading(false);
+  }, [applySession]);
 
   const value = useMemo(
     () => ({

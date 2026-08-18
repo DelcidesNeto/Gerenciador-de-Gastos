@@ -1,21 +1,10 @@
 import type { Env } from '../env';
+import { HttpError } from '../errors';
 import type { UserProfile, UserRole } from '../models/schemas';
-import {
-  deleteKey,
-  getJson,
-  HttpError,
-  listAllKeys,
-  putJson,
-} from '../repositories/r2Json';
 import { hashPassword, randomId, randomSaltHex, verifyPassword } from '../utils/crypto';
 import { signJwt } from '../utils/jwt';
-import {
-  normalizeEmail,
-  r2Prefix,
-  userEmailKey,
-  userPrefix,
-  userProfileKey,
-} from '../utils/paths';
+import { normalizeEmail } from '../utils/paths';
+import { userFromRow, type UserRow } from '../db/mappers';
 import { CategoryService } from './categoryService';
 
 export class AuthService {
@@ -42,31 +31,38 @@ export class AuthService {
 
   async register(input: { name: string; email: string; password: string }) {
     const email = normalizeEmail(input.email);
-    const prefix = r2Prefix(this.env);
-    const emailKey = userEmailKey(prefix, email);
-
-    const existing = await getJson<{ userId: string }>(this.env.APPLICATIONS, emailKey);
-    if (existing) {
-      throw new HttpError(409, 'E-mail já cadastrado');
-    }
+    const existing = await this.env.DB.prepare('SELECT id FROM users WHERE email = ?')
+      .bind(email)
+      .first();
+    if (existing) throw new HttpError(409, 'E-mail já cadastrado');
 
     const id = randomId();
     const salt = randomSaltHex();
     const passwordHash = await hashPassword(input.password, salt);
     const now = new Date().toISOString();
+    const role = this.resolveRole(email);
     const profile: UserProfile = {
       id,
       name: input.name.trim(),
       email,
       passwordHash,
       salt,
-      role: this.resolveRole(email),
+      role,
       createdAt: now,
       updatedAt: now,
     };
 
-    await putJson(this.env.APPLICATIONS, emailKey, { userId: id }, { onlyIfNoneMatch: true });
-    await putJson(this.env.APPLICATIONS, userProfileKey(prefix, id), profile);
+    try {
+      await this.env.DB.prepare(
+        `INSERT INTO users (id, name, email, password_hash, salt, role, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+        .bind(id, profile.name, email, passwordHash, salt, role, now, now)
+        .run();
+    } catch {
+      throw new HttpError(409, 'E-mail já cadastrado');
+    }
+
     await new CategoryService(this.env).ensureDefaults(id);
 
     const token = await this.issueToken(profile);
@@ -75,16 +71,13 @@ export class AuthService {
 
   async login(input: { email: string; password: string }) {
     const email = normalizeEmail(input.email);
-    const prefix = r2Prefix(this.env);
     const envAdminOk = this.matchesAdminEnvPassword(email, input.password);
 
-    const mapping = await getJson<{ userId: string }>(
-      this.env.APPLICATIONS,
-      userEmailKey(prefix, email),
-    );
+    const row = await this.env.DB.prepare('SELECT * FROM users WHERE email = ?')
+      .bind(email)
+      .first<UserRow>();
 
-    // Bootstrap: cria o admin no primeiro login com ADMIN_EMAIL + ADMIN_PASSWORD
-    if (!mapping) {
+    if (!row) {
       if (!envAdminOk) throw new HttpError(401, 'E-mail ou senha inválidos');
       return this.register({
         name: 'Administrador',
@@ -93,40 +86,33 @@ export class AuthService {
       });
     }
 
-    let profile = await getJson<UserProfile>(
-      this.env.APPLICATIONS,
-      userProfileKey(prefix, mapping.userId),
-    );
-    if (!profile) throw new HttpError(401, 'E-mail ou senha inválidos');
+    let profile = userFromRow(row);
 
     if (envAdminOk) {
-      // Mantém o hash do R2 alinhado com a senha do ambiente
       const synced = await verifyPassword(input.password, profile.salt, profile.passwordHash);
       if (!synced) {
         const salt = randomSaltHex();
         const passwordHash = await hashPassword(input.password, salt);
-        profile = {
-          ...profile,
-          salt,
-          passwordHash,
-          updatedAt: new Date().toISOString(),
-        };
-        await putJson(this.env.APPLICATIONS, userProfileKey(prefix, profile.id), profile);
+        const updatedAt = new Date().toISOString();
+        await this.env.DB.prepare(
+          'UPDATE users SET salt = ?, password_hash = ?, updated_at = ? WHERE id = ?',
+        )
+          .bind(salt, passwordHash, updatedAt, profile.id)
+          .run();
+        profile = { ...profile, salt, passwordHash, updatedAt };
       }
     } else {
       const ok = await verifyPassword(input.password, profile.salt, profile.passwordHash);
       if (!ok) throw new HttpError(401, 'E-mail ou senha inválidos');
     }
 
-    // Usuários antigos sem role + promoção via ADMIN_EMAIL
     const role = this.resolveRole(profile.email, profile.role ?? 'user');
     if (profile.role !== role || !profile.role) {
-      profile = {
-        ...profile,
-        role,
-        updatedAt: new Date().toISOString(),
-      };
-      await putJson(this.env.APPLICATIONS, userProfileKey(prefix, profile.id), profile);
+      const updatedAt = new Date().toISOString();
+      await this.env.DB.prepare('UPDATE users SET role = ?, updated_at = ? WHERE id = ?')
+        .bind(role, updatedAt, profile.id)
+        .run();
+      profile = { ...profile, role, updatedAt };
     }
 
     const token = await this.issueToken(profile);
@@ -142,7 +128,6 @@ export class AuthService {
   }
 
   async updateProfile(userId: string, input: { name?: string; email?: string }) {
-    const prefix = r2Prefix(this.env);
     const profile = await this.requireProfile(userId);
     let next = { ...profile };
 
@@ -153,20 +138,22 @@ export class AuthService {
     if (input.email != null) {
       const newEmail = normalizeEmail(input.email);
       if (newEmail !== profile.email) {
-        const emailKey = userEmailKey(prefix, newEmail);
-        const taken = await getJson<{ userId: string }>(this.env.APPLICATIONS, emailKey);
-        if (taken && taken.userId !== userId) {
-          throw new HttpError(409, 'E-mail já está em uso');
-        }
-        await deleteKey(this.env.APPLICATIONS, userEmailKey(prefix, profile.email));
-        await putJson(this.env.APPLICATIONS, emailKey, { userId });
+        const taken = await this.env.DB.prepare('SELECT id FROM users WHERE email = ? AND id != ?')
+          .bind(newEmail, userId)
+          .first();
+        if (taken) throw new HttpError(409, 'E-mail já está em uso');
         next.email = newEmail;
         next.role = this.resolveRole(newEmail, next.role === 'admin' ? 'admin' : 'user');
       }
     }
 
     next.updatedAt = new Date().toISOString();
-    await putJson(this.env.APPLICATIONS, userProfileKey(prefix, userId), next);
+    await this.env.DB.prepare(
+      'UPDATE users SET name = ?, email = ?, role = ?, updated_at = ? WHERE id = ?',
+    )
+      .bind(next.name, next.email, next.role, next.updatedAt, userId)
+      .run();
+
     const token = await this.issueToken(next);
     return { token, user: publicUser(next) };
   }
@@ -181,26 +168,20 @@ export class AuthService {
 
     const salt = randomSaltHex();
     const passwordHash = await hashPassword(input.newPassword, salt);
-    const next: UserProfile = {
-      ...profile,
-      salt,
-      passwordHash,
-      updatedAt: new Date().toISOString(),
-    };
-    await putJson(this.env.APPLICATIONS, userProfileKey(r2Prefix(this.env), userId), next);
+    const updatedAt = new Date().toISOString();
+    await this.env.DB.prepare(
+      'UPDATE users SET salt = ?, password_hash = ?, updated_at = ? WHERE id = ?',
+    )
+      .bind(salt, passwordHash, updatedAt, userId)
+      .run();
     return { ok: true as const };
   }
 
   async listUsers() {
-    const prefix = r2Prefix(this.env);
-    const keys = await listAllKeys(this.env.APPLICATIONS, `${prefix}/users/`);
-    const profileKeys = keys.filter((k) => k.endsWith('/profile.json'));
-    const users = [];
-    for (const key of profileKeys) {
-      const profile = await getJson<UserProfile>(this.env.APPLICATIONS, key);
-      if (profile) users.push(publicUser(this.withRole(profile)));
-    }
-    return users.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+    const result = await this.env.DB.prepare(
+      'SELECT * FROM users ORDER BY name COLLATE NOCASE ASC',
+    ).all<UserRow>();
+    return (result.results ?? []).map((row) => publicUser(this.withRole(userFromRow(row))));
   }
 
   async deleteUser(actorId: string, targetId: string) {
@@ -216,14 +197,7 @@ export class AuthService {
       }
     }
 
-    const prefix = r2Prefix(this.env);
-    await deleteKey(this.env.APPLICATIONS, userEmailKey(prefix, target.email));
-
-    const userKeys = await listAllKeys(this.env.APPLICATIONS, userPrefix(prefix, targetId));
-    for (const key of userKeys) {
-      await deleteKey(this.env.APPLICATIONS, key);
-    }
-
+    await this.env.DB.prepare('DELETE FROM users WHERE id = ?').bind(targetId).run();
     return { ok: true as const };
   }
 
@@ -235,12 +209,11 @@ export class AuthService {
   }
 
   private async requireProfile(userId: string): Promise<UserProfile> {
-    const profile = await getJson<UserProfile>(
-      this.env.APPLICATIONS,
-      userProfileKey(r2Prefix(this.env), userId),
-    );
-    if (!profile) throw new HttpError(404, 'Usuário não encontrado');
-    return this.withRole(profile);
+    const row = await this.env.DB.prepare('SELECT * FROM users WHERE id = ?')
+      .bind(userId)
+      .first<UserRow>();
+    if (!row) throw new HttpError(404, 'Usuário não encontrado');
+    return this.withRole(userFromRow(row));
   }
 
   private async issueToken(profile: UserProfile) {

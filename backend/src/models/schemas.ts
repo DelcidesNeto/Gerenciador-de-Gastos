@@ -66,6 +66,14 @@ export const contributionSchema = z.object({
 export const simulateWithdrawalSchema = z.object({
   contributionId: z.string().uuid(),
   redemptionDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  /** Principal a resgatar. Sem valor = resgate total do aporte. */
+  amount: z.number().positive().optional(),
+});
+
+export const withdrawSchema = z.object({
+  contributionId: z.string().uuid(),
+  redemptionDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  amount: z.number().positive(),
 });
 
 export const updateProfileSchema = z.object({
@@ -108,6 +116,24 @@ export type Contribution = {
   id: string;
   amount: number;
   date: string;
+  createdAt: string;
+};
+
+export type Withdrawal = {
+  id: string;
+  investmentId: string;
+  contributionId: string;
+  date: string;
+  principal: number;
+  remainingPrincipal: number;
+  grossYield: number;
+  iof: number;
+  iofRate: number;
+  incomeTax: number;
+  incomeTaxRate: number;
+  netYield: number;
+  netAmount: number;
+  daysHeld: number;
   createdAt: string;
 };
 

@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { AppVariables, Env } from '../env';
 import { expenseSchema, expenseUpdateSchema } from '../models/schemas';
 import { authMiddleware } from '../middleware/auth';
-import { HttpError } from '../repositories/r2Json';
+import { HttpError } from '../errors';
 import { ExpenseService } from '../services/expenseService';
 
 export const expenseRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();

@@ -1,7 +1,7 @@
 import type { ErrorHandler } from 'hono';
 import { ZodError } from 'zod';
 import type { AppVariables, Env } from '../env';
-import { HttpError } from '../repositories/r2Json';
+import { HttpError } from '../errors';
 
 export const errorHandler: ErrorHandler<{ Bindings: Env; Variables: AppVariables }> = (err, c) => {
   if (err instanceof ZodError) {

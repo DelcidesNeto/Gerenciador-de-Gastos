@@ -5,17 +5,14 @@ main = "src/index.ts"
 compatibility_date = "2024-11-01"
 compatibility_flags = ["nodejs_compat"]
 
-# remote = true → em `wrangler dev`, usa o bucket R2 real da Cloudflare
-# (sem isso, os dados ficam só no R2 simulado local e não aparecem no painel)
-[[r2_buckets]]
-binding = "APPLICATIONS"
-bucket_name = "applications"
-preview_bucket_name = "applications"
-remote = true
+[[d1_databases]]
+binding = "DB"
+database_name = "gerenciador_de_gastos"
+database_id = "1246ece6-79a7-4b4f-8101-227be221cdf1"
+migrations_dir = "migrations"
 
 [vars]
 CORS_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173,https://delcidesneto.github.io"
-R2_PREFIX = "gerenciador_de_gastos"
 ADMIN_EMAIL = "delcides.c.c.neto@gmail.com"
 
 # Secrets (definidos via `wrangler secret put`):

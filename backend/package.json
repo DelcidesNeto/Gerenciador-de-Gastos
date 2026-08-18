@@ -8,6 +8,8 @@
     "dev": "wrangler dev",
     "dev:host": "wrangler dev --ip 0.0.0.0 --port 8787",
     "deploy": "wrangler deploy",
+    "db:migrate:local": "wrangler d1 migrations apply gerenciador_de_gastos --local",
+    "db:migrate:remote": "wrangler d1 migrations apply gerenciador_de_gastos --remote",
     "typecheck": "tsc --noEmit",
     "login": "wrangler login",
     "whoami": "wrangler whoami"

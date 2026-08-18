@@ -128,5 +128,24 @@ function findLastKnownRate(
   return best;
 }
 
+/** Aplica a fração do principal resgatada (resgate parcial). Alíquotas não mudam. */
+export function scalePerformance(
+  performance: ContributionPerformance,
+  share: number,
+): ContributionPerformance {
+  const factor = Math.min(1, Math.max(0, share));
+  if (factor === 1) return performance;
+  return {
+    ...performance,
+    principal: roundMoney(performance.principal * factor),
+    grossYield: roundMoney(performance.grossYield * factor),
+    iof: roundMoney(performance.iof * factor),
+    incomeTax: roundMoney(performance.incomeTax * factor),
+    netYield: roundMoney(performance.netYield * factor),
+    currentValue: roundMoney(performance.currentValue * factor),
+    netRedemptionValue: roundMoney(performance.netRedemptionValue * factor),
+  };
+}
+
 /** Expõe todayIso para testes/callers que queiram ancorar projeção. */
 export { todayIso };

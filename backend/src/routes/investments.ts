@@ -5,6 +5,7 @@ import {
   investmentSchema,
   investmentUpdateSchema,
   simulateWithdrawalSchema,
+  withdrawSchema,
 } from '../models/schemas';
 import { authMiddleware } from '../middleware/auth';
 import { InvestmentService } from '../services/investmentService';
@@ -93,6 +94,27 @@ investmentRoutes.post('/:id/simulate-withdrawal', async (c) => {
     c.req.param('id'),
     body.contributionId,
     body.redemptionDate,
+    body.amount,
   );
   return c.json(result);
+});
+
+investmentRoutes.get('/:id/withdrawals', async (c) => {
+  const items = await new InvestmentService(c.env).listWithdrawals(
+    c.get('userId'),
+    c.req.param('id'),
+  );
+  return c.json({ items });
+});
+
+investmentRoutes.post('/:id/withdrawals', async (c) => {
+  const body = withdrawSchema.parse(await c.req.json());
+  const result = await new InvestmentService(c.env).withdraw(
+    c.get('userId'),
+    c.req.param('id'),
+    body.contributionId,
+    body.redemptionDate,
+    body.amount,
+  );
+  return c.json(result, 201);
 });

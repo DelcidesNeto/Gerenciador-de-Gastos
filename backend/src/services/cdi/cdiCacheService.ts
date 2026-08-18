@@ -1,8 +1,7 @@
 import type { Env } from '../../env';
 import type { CdiCacheFile, CdiDailyRate } from '../../models/schemas';
-import { getJson, putJson } from '../../repositories/r2Json';
+import { runBatches } from '../../db/mappers';
 import { todayIso } from '../../utils/dates';
-import { cdiCacheKey, r2Prefix } from '../../utils/paths';
 import { BCB_SERIES_CODE, BcbCdiProvider } from './bcbCdiProvider';
 import type { CdiProvider } from './cdiProvider';
 
@@ -15,7 +14,21 @@ export class CdiCacheService {
   ) {}
 
   async getCache(): Promise<CdiCacheFile | null> {
-    return getJson<CdiCacheFile>(this.env.APPLICATIONS, cdiCacheKey(r2Prefix(this.env)));
+    const meta = await this.env.DB.prepare(
+      'SELECT source, series_code, updated_at FROM cdi_cache_meta WHERE id = 1',
+    ).first<{ source: string; series_code: string; updated_at: string }>();
+    if (!meta) return null;
+
+    const rates = await this.env.DB.prepare(
+      'SELECT date, rate FROM cdi_rates ORDER BY date ASC',
+    ).all<CdiDailyRate>();
+
+    return {
+      source: meta.source,
+      seriesCode: meta.series_code,
+      updatedAt: meta.updated_at,
+      rates: rates.results ?? [],
+    };
   }
 
   /**
@@ -61,13 +74,34 @@ export class CdiCacheService {
       updatedAt: new Date().toISOString(),
       rates: merged,
     };
-    await putJson(this.env.APPLICATIONS, cdiCacheKey(r2Prefix(this.env)), file);
+    await this.saveCache(file);
     return file;
   }
 
   async getRateMap(uptoDate = todayIso()): Promise<Map<string, number>> {
     const cache = await this.ensureRates(uptoDate);
     return new Map(cache.rates.map((r) => [r.date, r.rate]));
+  }
+
+  async saveCache(file: CdiCacheFile): Promise<void> {
+    const stmts: D1PreparedStatement[] = [
+      this.env.DB.prepare('DELETE FROM cdi_rates'),
+      this.env.DB.prepare(
+        `INSERT INTO cdi_cache_meta (id, source, series_code, updated_at)
+         VALUES (1, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           source = excluded.source,
+           series_code = excluded.series_code,
+           updated_at = excluded.updated_at`,
+      ).bind(file.source, file.seriesCode, file.updatedAt),
+      ...file.rates.map((r) =>
+        this.env.DB.prepare('INSERT INTO cdi_rates (date, rate) VALUES (?, ?)').bind(
+          r.date,
+          r.rate,
+        ),
+      ),
+    ];
+    await runBatches(this.env.DB, stmts);
   }
 }
 

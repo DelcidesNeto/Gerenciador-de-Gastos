@@ -4,7 +4,9 @@ import { KpiCard } from '../components/KpiCard';
 import { ApiError } from '../services/apiClient';
 import {
   addContribution,
+  confirmWithdrawal,
   investmentPerformance,
+  listWithdrawals,
   removeContribution,
   simulateWithdrawal,
   updateContribution,
@@ -12,6 +14,8 @@ import {
   type Contribution,
   type Performance,
   type SummaryTotals,
+  type Withdrawal,
+  type WithdrawalPreview,
 } from '../services/investmentService';
 import { formatCurrency, formatDate, formatPercent, todayIso } from '../utils/format';
 
@@ -30,37 +34,34 @@ export function InvestmentDetailPage() {
   const [date, setDate] = useState(todayIso());
   const [simContributionId, setSimContributionId] = useState('');
   const [simDate, setSimDate] = useState(todayIso());
-  const [simulation, setSimulation] = useState<{
-    investedAmount: number;
-    grossYield: number;
-    iof: number;
-    incomeTax: number;
-    netYield: number;
-    netRedemptionValue: number;
-    daysHeld: number;
-    iofRate: number;
-    incomeTaxRate: number;
-    projectedBusinessDays: number;
-    lastKnownCdiDate: string | null;
-  } | null>(null);
+  const [simAmount, setSimAmount] = useState(0);
+  const [simulation, setSimulation] = useState<WithdrawalPreview | null>(null);
+  const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingMeta, setSavingMeta] = useState(false);
+  const [redeeming, setRedeeming] = useState(false);
 
   async function refresh() {
     setLoading(true);
     setError('');
     try {
       const data = await investmentPerformance(id);
+      const history = await listWithdrawals(id).catch(() => ({ items: [] as Withdrawal[] }));
       setName(data.investment.name);
       setCdiPercent(data.investment.cdiPercent);
       setEditName(data.investment.name);
       setEditCdiPercent(data.investment.cdiPercent);
       setRows(data.contributions);
       setSummary(data.summary);
-      if (!simContributionId && data.contributions[0]) {
-        setSimContributionId(data.contributions[0].id);
+      setWithdrawals(history.items);
+      const stillExists = data.contributions.some((c) => c.id === simContributionId);
+      const nextId = stillExists ? simContributionId : data.contributions[0]?.id ?? '';
+      setSimContributionId(nextId);
+      const nextContribution = data.contributions.find((c) => c.id === nextId);
+      if (nextContribution && (!simAmount || !stillExists)) {
+        setSimAmount(nextContribution.amount);
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Erro ao carregar investimento');
@@ -145,11 +146,43 @@ export function InvestmentDetailPage() {
       const result = await simulateWithdrawal(id, {
         contributionId: simContributionId,
         redemptionDate: simDate,
+        amount: Number(simAmount),
       });
       setSimulation(result);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Erro na simulação');
     }
+  }
+
+  async function onConfirmWithdrawal() {
+    if (!simulation) return;
+    const remaining = simulation.remainingPrincipal;
+    const msg = simulation.fullRedemption
+      ? `Confirmar resgate total deste aporte? O IOF e o IR serão descontados do rendimento.`
+      : `Confirmar resgate de ${formatCurrency(simulation.investedAmount)}? Restam ${formatCurrency(remaining)} aplicados neste aporte.`;
+    if (!confirm(msg)) return;
+    setRedeeming(true);
+    setError('');
+    try {
+      await confirmWithdrawal(id, {
+        contributionId: simContributionId,
+        redemptionDate: simDate,
+        amount: Number(simAmount),
+      });
+      setSimulation(null);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Erro ao confirmar o resgate');
+    } finally {
+      setRedeeming(false);
+    }
+  }
+
+  function onSelectContribution(contributionId: string) {
+    setSimContributionId(contributionId);
+    setSimulation(null);
+    const row = rows.find((r) => r.id === contributionId);
+    if (row) setSimAmount(row.amount);
   }
 
   return (
@@ -298,37 +331,64 @@ export function InvestmentDetailPage() {
       </section>
 
       <section className="panel">
-        <h2>Simular resgate</h2>
-        <form className="stack" onSubmit={(e) => void onSimulate(e)} style={{ marginTop: '0.8rem' }}>
-          <div className="form-grid">
-            <div className="field">
-              <label>Aporte</label>
-              <select
-                required
-                value={simContributionId}
-                onChange={(e) => setSimContributionId(e.target.value)}
-              >
-                {rows.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {formatDate(r.date)} — {formatCurrency(r.amount)}
-                  </option>
-                ))}
-              </select>
+        <h2>Resgatar</h2>
+        <p className="muted" style={{ marginTop: '0.35rem' }}>
+          Informe quanto do valor aplicado você quer tirar. O rendimento proporcional, IOF e IR
+          entram na conta. O que sobrar continua rendendo neste aporte.
+        </p>
+        {rows.length === 0 ? (
+          <div className="empty">Nenhum aporte disponível para resgate.</div>
+        ) : (
+          <form className="stack" onSubmit={(e) => void onSimulate(e)} style={{ marginTop: '0.8rem' }}>
+            <div className="form-grid">
+              <div className="field">
+                <label>Aporte</label>
+                <select
+                  required
+                  value={simContributionId}
+                  onChange={(e) => onSelectContribution(e.target.value)}
+                >
+                  {rows.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {formatDate(r.date)} — {formatCurrency(r.amount)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field">
+                <label>Valor do principal</label>
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  required
+                  value={simAmount || ''}
+                  onChange={(e) => {
+                    setSimAmount(Number(e.target.value));
+                    setSimulation(null);
+                  }}
+                />
+              </div>
+              <div className="field">
+                <label>Data do resgate</label>
+                <input
+                  type="date"
+                  required
+                  value={simDate}
+                  onChange={(e) => {
+                    setSimDate(e.target.value);
+                    setSimulation(null);
+                  }}
+                />
+              </div>
             </div>
-            <div className="field">
-              <label>Data do resgate</label>
-              <input
-                type="date"
-                required
-                value={simDate}
-                onChange={(e) => setSimDate(e.target.value)}
-              />
+            <div className="row">
+              <button className="btn btn-secondary" type="submit">
+                Calcular impostos
+              </button>
             </div>
-          </div>
-          <button className="btn" type="submit">
-            Simular
-          </button>
-        </form>
+          </form>
+        )}
 
         {simulation ? (
           <div className="stack" style={{ marginTop: '1.2rem' }}>
@@ -336,6 +396,13 @@ export function InvestmentDetailPage() {
               <span className="badge">{simulation.daysHeld} dias</span>
               <span className="badge">IOF {formatPercent(simulation.iofRate)}</span>
               <span className="badge">IR {formatPercent(simulation.incomeTaxRate)}</span>
+              {simulation.fullRedemption ? (
+                <span className="badge">Resgate total</span>
+              ) : (
+                <span className="badge">
+                  Resta {formatCurrency(simulation.remainingPrincipal)}
+                </span>
+              )}
             </div>
             {simulation.projectedBusinessDays > 0 ? (
               <p className="muted">
@@ -348,19 +415,65 @@ export function InvestmentDetailPage() {
               </p>
             ) : null}
             <ul style={{ paddingLeft: '1.1rem', lineHeight: 1.8 }}>
-              <li>Valor investido: {formatCurrency(simulation.investedAmount)}</li>
+              <li>Principal resgatado: {formatCurrency(simulation.investedAmount)}</li>
               <li>Rendimento bruto: {formatCurrency(simulation.grossYield)}</li>
               <li>IOF: {formatCurrency(simulation.iof)}</li>
               <li>IR: {formatCurrency(simulation.incomeTax)}</li>
               <li>Rendimento líquido: {formatCurrency(simulation.netYield)}</li>
               <li>
                 <strong>
-                  Valor líquido do resgate: {formatCurrency(simulation.netRedemptionValue)}
+                  Você recebe: {formatCurrency(simulation.netRedemptionValue)}
                 </strong>
               </li>
             </ul>
+            <div className="row">
+              <button
+                className="btn"
+                type="button"
+                disabled={redeeming}
+                onClick={() => void onConfirmWithdrawal()}
+              >
+                {redeeming ? 'Confirmando...' : 'Confirmar resgate'}
+              </button>
+            </div>
           </div>
         ) : null}
+      </section>
+
+      <section className="panel">
+        <h2>Histórico de resgates</h2>
+        {withdrawals.length === 0 ? (
+          <div className="empty">Nenhum resgate registrado ainda.</div>
+        ) : (
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Data</th>
+                  <th>Principal</th>
+                  <th>Rendimento</th>
+                  <th>IOF</th>
+                  <th>IR</th>
+                  <th>Recebido</th>
+                  <th>Restante no aporte</th>
+                </tr>
+              </thead>
+              <tbody>
+                {withdrawals.map((item) => (
+                  <tr key={item.id}>
+                    <td>{formatDate(item.date)}</td>
+                    <td>{formatCurrency(item.principal)}</td>
+                    <td className="money-pos">{formatCurrency(item.grossYield)}</td>
+                    <td>{formatCurrency(item.iof)}</td>
+                    <td>{formatCurrency(item.incomeTax)}</td>
+                    <td>{formatCurrency(item.netAmount)}</td>
+                    <td>{formatCurrency(item.remainingPrincipal)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
     </div>
   );

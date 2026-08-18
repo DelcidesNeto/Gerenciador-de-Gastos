@@ -47,6 +47,43 @@ export type SummaryTotals = {
   contributionsCount: number;
 };
 
+export type Withdrawal = {
+  id: string;
+  investmentId: string;
+  contributionId: string;
+  date: string;
+  principal: number;
+  remainingPrincipal: number;
+  grossYield: number;
+  iof: number;
+  iofRate: number;
+  incomeTax: number;
+  incomeTaxRate: number;
+  netYield: number;
+  netAmount: number;
+  daysHeld: number;
+  createdAt: string;
+};
+
+export type WithdrawalPreview = {
+  investmentId: string;
+  contribution: Contribution;
+  redemptionDate: string;
+  investedAmount: number;
+  remainingPrincipal: number;
+  fullRedemption: boolean;
+  grossYield: number;
+  iof: number;
+  incomeTax: number;
+  netYield: number;
+  netRedemptionValue: number;
+  daysHeld: number;
+  iofRate: number;
+  incomeTaxRate: number;
+  projectedBusinessDays: number;
+  lastKnownCdiDate: string | null;
+};
+
 export async function listInvestments() {
   return apiRequest<{ items: Investment[] }>('/investments');
 }
@@ -122,24 +159,27 @@ export async function investmentsSummary(asOf?: string) {
 
 export async function simulateWithdrawal(
   id: string,
-  input: { contributionId: string; redemptionDate: string },
+  input: { contributionId: string; redemptionDate: string; amount?: number },
+) {
+  return apiRequest<WithdrawalPreview>(`/investments/${id}/simulate-withdrawal`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function listWithdrawals(id: string) {
+  return apiRequest<{ items: Withdrawal[] }>(`/investments/${id}/withdrawals`);
+}
+
+export async function confirmWithdrawal(
+  id: string,
+  input: { contributionId: string; redemptionDate: string; amount: number },
 ) {
   return apiRequest<{
-    investmentId: string;
-    contribution: Contribution;
-    redemptionDate: string;
-    investedAmount: number;
-    grossYield: number;
-    iof: number;
-    incomeTax: number;
-    netYield: number;
-    netRedemptionValue: number;
-    daysHeld: number;
-    iofRate: number;
-    incomeTaxRate: number;
-    projectedBusinessDays: number;
-    lastKnownCdiDate: string | null;
-  }>(`/investments/${id}/simulate-withdrawal`, {
+    withdrawal: Withdrawal;
+    preview: WithdrawalPreview;
+    investment: Investment;
+  }>(`/investments/${id}/withdrawals`, {
     method: 'POST',
     body: JSON.stringify(input),
   });

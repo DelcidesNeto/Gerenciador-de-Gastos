@@ -1,47 +1,48 @@
 import type { Env } from '../env';
+import { HttpError } from '../errors';
 import type { Expense } from '../models/schemas';
-import {
-  deleteKey,
-  getJson,
-  HttpError,
-  listJsonUnderPrefix,
-  putJson,
-} from '../repositories/r2Json';
+import { expenseFromRow, type ExpenseRow } from '../db/mappers';
 import { randomId } from '../utils/crypto';
 import { monthKeyFromIso } from '../utils/dates';
-import { expenseKey, expensePrefix, r2Prefix } from '../utils/paths';
 import { roundMoney } from '../utils/money';
 
 export class ExpenseService {
   constructor(private env: Env) {}
 
-  private prefix(userId: string) {
-    return expensePrefix(r2Prefix(this.env), userId);
-  }
-
-  private key(userId: string, id: string) {
-    return expenseKey(r2Prefix(this.env), userId, id);
-  }
-
   async list(
     userId: string,
     filters?: { from?: string; to?: string; category?: string },
   ): Promise<Expense[]> {
-    const all = await listJsonUnderPrefix<Expense>(this.env.APPLICATIONS, this.prefix(userId));
-    return all
-      .filter((e) => {
-        if (filters?.from && e.date < filters.from) return false;
-        if (filters?.to && e.date > filters.to) return false;
-        if (filters?.category && e.category !== filters.category) return false;
-        return true;
-      })
-      .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+    const clauses = ['user_id = ?'];
+    const binds: unknown[] = [userId];
+    if (filters?.from) {
+      clauses.push('date >= ?');
+      binds.push(filters.from);
+    }
+    if (filters?.to) {
+      clauses.push('date <= ?');
+      binds.push(filters.to);
+    }
+    if (filters?.category) {
+      clauses.push('category = ?');
+      binds.push(filters.category);
+    }
+
+    const result = await this.env.DB.prepare(
+      `SELECT * FROM expenses WHERE ${clauses.join(' AND ')} ORDER BY date DESC, created_at DESC`,
+    )
+      .bind(...binds)
+      .all<ExpenseRow>();
+
+    return (result.results ?? []).map(expenseFromRow);
   }
 
   async get(userId: string, id: string): Promise<Expense> {
-    const expense = await getJson<Expense>(this.env.APPLICATIONS, this.key(userId, id));
-    if (!expense) throw new HttpError(404, 'Gasto não encontrado');
-    return expense;
+    const row = await this.env.DB.prepare('SELECT * FROM expenses WHERE id = ? AND user_id = ?')
+      .bind(id, userId)
+      .first<ExpenseRow>();
+    if (!row) throw new HttpError(404, 'Gasto não encontrado');
+    return expenseFromRow(row);
   }
 
   async create(
@@ -61,7 +62,25 @@ export class ExpenseService {
       updatedAt: now,
       version: 1,
     };
-    await putJson(this.env.APPLICATIONS, this.key(userId, expense.id), expense);
+    await this.env.DB.prepare(
+      `INSERT INTO expenses
+        (id, user_id, description, amount, date, category, payment_method, notes, created_at, updated_at, version)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+      .bind(
+        expense.id,
+        userId,
+        expense.description,
+        expense.amount,
+        expense.date,
+        expense.category,
+        expense.paymentMethod,
+        expense.notes,
+        expense.createdAt,
+        expense.updatedAt,
+        expense.version,
+      )
+      .run();
     return expense;
   }
 
@@ -79,17 +98,36 @@ export class ExpenseService {
       updatedAt: new Date().toISOString(),
       version: current.version + 1,
     };
-    await putJson(this.env.APPLICATIONS, this.key(userId, id), updated);
+    await this.env.DB.prepare(
+      `UPDATE expenses
+       SET description = ?, amount = ?, date = ?, category = ?, payment_method = ?,
+           notes = ?, updated_at = ?, version = ?
+       WHERE id = ? AND user_id = ?`,
+    )
+      .bind(
+        updated.description,
+        updated.amount,
+        updated.date,
+        updated.category,
+        updated.paymentMethod,
+        updated.notes,
+        updated.updatedAt,
+        updated.version,
+        id,
+        userId,
+      )
+      .run();
     return updated;
   }
 
   async remove(userId: string, id: string): Promise<void> {
     await this.get(userId, id);
-    await deleteKey(this.env.APPLICATIONS, this.key(userId, id));
+    await this.env.DB.prepare('DELETE FROM expenses WHERE id = ? AND user_id = ?')
+      .bind(id, userId)
+      .run();
   }
 
   async summaryByMonth(userId: string, month: string) {
-    // month: YYYY-MM
     const from = `${month}-01`;
     const to = `${month}-31`;
     const items = await this.list(userId, { from, to });

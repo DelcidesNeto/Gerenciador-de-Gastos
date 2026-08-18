@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { calculateIncomeTax, getIncomeTaxRate } from '../src/services/tax/incomeTax';
 import { calculateIOF, getIofRate } from '../src/services/tax/iof';
-import { calculateContributionPerformance } from '../src/services/yieldService';
+import { calculateContributionPerformance, scalePerformance } from '../src/services/yieldService';
 
 describe('IR regressivo', () => {
   it('usa as faixas oficiais', () => {
@@ -81,5 +81,26 @@ describe('rendimento por aporte', () => {
     expect(result.projectedBusinessDays).toBe(2);
     expect(result.grossYield).toBeCloseTo(expectedGross, 2);
     expect(result.netRedemptionValue).toBeGreaterThan(100);
+  });
+
+  it('no resgate parcial, IOF e IR acompanham a fração do principal', () => {
+    const rates = new Map<string, number>([
+      ['2026-08-01', 0.0005],
+      ['2026-08-02', 0.0005],
+      ['2026-08-03', 0.0005],
+    ]);
+    const full = calculateContributionPerformance(
+      { amount: 1000, date: '2026-08-01', cdiPercent: 100 },
+      rates,
+      '2026-08-04',
+    );
+    const half = scalePerformance(full, 0.5);
+    expect(half.principal).toBe(500);
+    expect(half.grossYield).toBeCloseTo(full.grossYield / 2, 1);
+    expect(half.iof).toBeCloseTo(full.iof / 2, 1);
+    expect(half.incomeTax).toBeCloseTo(full.incomeTax / 2, 1);
+    expect(half.incomeTaxRate).toBe(full.incomeTaxRate);
+    expect(half.iofRate).toBe(full.iofRate);
+    expect(half.netRedemptionValue).toBeCloseTo(full.netRedemptionValue / 2, 2);
   });
 });

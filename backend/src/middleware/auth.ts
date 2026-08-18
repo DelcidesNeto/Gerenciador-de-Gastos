@@ -1,6 +1,6 @@
 import { createMiddleware } from 'hono/factory';
 import type { AppVariables, Env } from '../env';
-import { HttpError } from '../repositories/r2Json';
+import { HttpError } from '../errors';
 import { AuthService } from '../services/authService';
 import { verifyJwt } from '../utils/jwt';
 

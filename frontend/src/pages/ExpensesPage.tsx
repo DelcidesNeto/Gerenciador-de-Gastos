@@ -4,14 +4,14 @@ import { ApiError } from '../services/apiClient';
 import {
   createExpense,
   deleteExpense,
-  expenseSummary,
+  expensesByPeriod,
   listCategories,
   listExpenses,
   updateExpense,
   type Expense,
   type ExpenseInput,
 } from '../services/expenseService';
-import { currentMonth, formatCurrency, formatDate, formatMonth, todayIso } from '../utils/format';
+import { currentMonth, formatCurrency, formatDate, todayIso } from '../utils/format';
 
 const PAYMENT_METHODS = [
   'Cartão de crédito',
@@ -34,7 +34,6 @@ const emptyForm: ExpenseInput = {
 export function ExpensesPage() {
   const [items, setItems] = useState<Expense[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
-  const [month, setMonth] = useState(currentMonth());
   const [from, setFrom] = useState(`${currentMonth()}-01`);
   const [to, setTo] = useState(todayIso());
   const [categoryFilter, setCategoryFilter] = useState('');
@@ -52,18 +51,30 @@ export function ExpensesPage() {
     setLoading(true);
     setError('');
     try {
-      const [list, cats, sum] = await Promise.all([
+      const periodFrom = from <= to ? from : to;
+      const periodTo = from <= to ? to : from;
+      const [list, cats, period] = await Promise.all([
         listExpenses({
-          from,
-          to,
+          from: periodFrom,
+          to: periodTo,
           category: categoryFilter || undefined,
         }),
         listCategories(),
-        expenseSummary(month),
+        expensesByPeriod(periodFrom, periodTo),
       ]);
       setItems(list.items);
       setCategories(cats.categories);
-      setSummary({ total: sum.total, byCategory: sum.byCategory });
+
+      const byCategory = categoryFilter
+        ? Object.fromEntries(
+            Object.entries(period.byCategory).filter(([cat]) => cat === categoryFilter),
+          )
+        : period.byCategory;
+      const total = categoryFilter
+        ? list.items.reduce((s, i) => s + i.amount, 0)
+        : period.total;
+
+      setSummary({ total, byCategory });
       setForm((f) => ({
         ...f,
         category: f.category || cats.categories[0] || 'Outros',
@@ -78,7 +89,13 @@ export function ExpensesPage() {
   useEffect(() => {
     void refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to, categoryFilter, month]);
+  }, [from, to, categoryFilter]);
+
+  const periodLabel = useMemo(() => {
+    const a = from <= to ? from : to;
+    const b = from <= to ? to : from;
+    return `${formatDate(a)} a ${formatDate(b)}`;
+  }, [from, to]);
 
   const totalPeriodo = useMemo(
     () => items.reduce((s, i) => s + i.amount, 0),
@@ -230,8 +247,12 @@ export function ExpensesPage() {
         <h2>Filtros</h2>
         <div className="form-grid" style={{ marginTop: '0.8rem' }}>
           <div className="field">
-            <label>Mês do resumo</label>
-            <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
+            <label>De</label>
+            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+          </div>
+          <div className="field">
+            <label>Até</label>
+            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
           </div>
           <div className="field">
             <label>Categoria</label>
@@ -244,20 +265,12 @@ export function ExpensesPage() {
               ))}
             </select>
           </div>
-          <div className="field">
-            <label>De</label>
-            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-          </div>
-          <div className="field">
-            <label>Até</label>
-            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-          </div>
         </div>
       </section>
 
       <div className="grid-2">
         <section className="panel">
-          <h2>Resumo — {formatMonth(month)}</h2>
+          <h2>Resumo — {periodLabel}</h2>
           <p className="kpi-value" style={{ marginTop: '0.75rem' }}>
             {formatCurrency(summary.total)}
           </p>
@@ -270,7 +283,7 @@ export function ExpensesPage() {
           </ul>
         </section>
         <section className="panel">
-          <h2>Por categoria no mês</h2>
+          <h2>Por categoria no período</h2>
           <CategoryPieChart data={summary.byCategory} />
         </section>
       </div>

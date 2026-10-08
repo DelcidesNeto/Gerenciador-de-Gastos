@@ -24,8 +24,16 @@ export function toIsoDate(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
-export function todayIso(): string {
-  return toIsoDate(new Date());
+const brazilDateFormat = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/Sao_Paulo',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+/** Data de hoje no horário de Brasília (o Worker roda em UTC). */
+export function todayIso(now = new Date()): string {
+  return brazilDateFormat.format(now);
 }
 
 /** Dias corridos entre duas datas ISO (inclusivo no cálculo de alíquota: diferença). */

@@ -1,7 +1,7 @@
 import type { Env } from '../../env';
 import type { CdiCacheFile, CdiDailyRate } from '../../models/schemas';
 import { runBatches } from '../../db/mappers';
-import { todayIso } from '../../utils/dates';
+import { parseIsoDate, todayIso, toIsoDate } from '../../utils/dates';
 import { BCB_SERIES_CODE, BcbCdiProvider } from './bcbCdiProvider';
 import type { CdiProvider } from './cdiProvider';
 
@@ -41,12 +41,14 @@ export class CdiCacheService {
 
     const existing = await this.getCache();
     const lastDate = existing?.rates[existing.rates.length - 1]?.date;
+    const ageMs = existing ? Date.now() - Date.parse(existing.updatedAt) : Infinity;
+    // A taxa do próprio dia nunca está publicada; falta dado só se não houver a de ontem.
+    const missingRecent = !lastDate || lastDate < previousDay(fetchUntil);
     const stale =
       !existing ||
       existing.rates.length === 0 ||
-      !lastDate ||
-      lastDate < fetchUntil ||
-      Date.now() - Date.parse(existing.updatedAt) > 12 * 60 * 60 * 1000;
+      ageMs > 12 * 60 * 60 * 1000 ||
+      (missingRecent && ageMs > 30 * 60 * 1000);
 
     if (!stale && existing) return existing;
 
@@ -103,6 +105,12 @@ export class CdiCacheService {
     ];
     await runBatches(this.env.DB, stmts);
   }
+}
+
+function previousDay(iso: string): string {
+  const d = parseIsoDate(iso);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return toIsoDate(d);
 }
 
 function mergeRates(a: CdiDailyRate[], b: CdiDailyRate[]): CdiDailyRate[] {

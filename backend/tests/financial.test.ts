@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { calculateIncomeTax, getIncomeTaxRate } from '../src/services/tax/incomeTax';
 import { calculateIOF, getIofRate } from '../src/services/tax/iof';
-import { calculateContributionPerformance, scalePerformance } from '../src/services/yieldService';
+import { calculateContributionPerformance, splitYield } from '../src/services/yieldService';
+import { todayIso } from '../src/utils/dates';
 
 describe('IR regressivo', () => {
   it('usa as faixas oficiais', () => {
@@ -67,13 +68,14 @@ describe('rendimento por aporte', () => {
     expect(half.grossYield).toBeCloseTo(full.grossYield / 2, 4);
   });
 
-  it('projeta CDI em dias úteis futuros sem taxa publicada', () => {
+  it('projeta CDI em dias úteis futuros sem taxa publicada, só em simulação', () => {
     // última taxa sexta 07/08; simula resgate na quarta 12/08
     const rates = new Map<string, number>([['2026-08-07', 0.0005]]);
     const result = calculateContributionPerformance(
       { amount: 100, date: '2026-08-07', cdiPercent: 100 },
       rates,
       '2026-08-12',
+      { projectUnpublished: true },
     );
     // dias no intervalo [07, 12): 07(sex usa 0.0005), 08(sab skip), 09(dom skip),
     // 10(seg proj), 11(ter proj) => 3 fatores
@@ -83,24 +85,79 @@ describe('rendimento por aporte', () => {
     expect(result.netRedemptionValue).toBeGreaterThan(100);
   });
 
-  it('no resgate parcial, IOF e IR acompanham a fração do principal', () => {
-    const rates = new Map<string, number>([
-      ['2026-08-01', 0.0005],
-      ['2026-08-02', 0.0005],
-      ['2026-08-03', 0.0005],
-    ]);
-    const full = calculateContributionPerformance(
-      { amount: 1000, date: '2026-08-01', cdiPercent: 100 },
+  it('não rende enquanto a taxa do dia não foi publicada (aporte de R$ 700)', () => {
+    // Última taxa publicada: 06/10. Aporte em 07/10, consultado em 08/10.
+    const rates = new Map<string, number>([['2026-10-06', 0.00051]]);
+    const result = calculateContributionPerformance(
+      { amount: 700, date: '2026-10-07', cdiPercent: 100 },
       rates,
-      '2026-08-04',
+      '2026-10-08',
     );
-    const half = scalePerformance(full, 0.5);
-    expect(half.principal).toBe(500);
-    expect(half.grossYield).toBeCloseTo(full.grossYield / 2, 1);
-    expect(half.iof).toBeCloseTo(full.iof / 2, 1);
-    expect(half.incomeTax).toBeCloseTo(full.incomeTax / 2, 1);
-    expect(half.incomeTaxRate).toBe(full.incomeTaxRate);
-    expect(half.iofRate).toBe(full.iofRate);
-    expect(half.netRedemptionValue).toBeCloseTo(full.netRedemptionValue / 2, 2);
+    expect(result.projectedBusinessDays).toBe(0);
+    expect(result.grossYield).toBe(0);
+    expect(result.iof).toBe(0);
+    expect(result.incomeTax).toBe(0);
+    expect(result.netYield).toBe(0);
+    expect(result.netRedemptionValue).toBe(700);
+  });
+
+  it('rende a partir da publicação da taxa do dia do aporte', () => {
+    const rates = new Map<string, number>([['2026-10-07', 0.00051]]);
+    const result = calculateContributionPerformance(
+      { amount: 700, date: '2026-10-07', cdiPercent: 100 },
+      rates,
+      '2026-10-08',
+    );
+    // 700 * 0,00051 = 0,357 → bruto 0,36; IOF 96% = 0,343 → 0,34; IR 22,5% de 0,014 → 0,00
+    expect(result.grossYield).toBe(0.36);
+    expect(result.iof).toBe(0.34);
+    expect(result.incomeTax).toBe(0);
+    expect(result.netYield).toBe(0.02);
+    expect(result.netRedemptionValue).toBe(700.02);
+  });
+
+  it('bruto − IOF − IR fecha com o líquido em centavos', () => {
+    const rates = new Map<string, number>();
+    for (let d = 1; d <= 28; d++) {
+      rates.set(`2026-08-${String(d).padStart(2, '0')}`, 0.000537);
+    }
+    for (const amount of [0.5, 13.37, 700, 1234.56, 99999.99]) {
+      for (const asOf of ['2026-08-02', '2026-08-05', '2026-08-15', '2026-08-29']) {
+        const r = calculateContributionPerformance(
+          { amount, date: '2026-08-01', cdiPercent: 103 },
+          rates,
+          asOf,
+        );
+        const cents = (v: number) => Math.round(v * 100);
+        expect(cents(r.grossYield) - cents(r.iof) - cents(r.incomeTax)).toBe(cents(r.netYield));
+        expect(r.netYield).toBeGreaterThanOrEqual(0);
+      }
+    }
+  });
+});
+
+describe('splitYield', () => {
+  it('arredonda cada parcela pelo valor exato e deriva o líquido', () => {
+    expect(splitYield(0.357, 1)).toEqual({
+      grossYield: 0.36,
+      iof: 0.34,
+      incomeTax: 0,
+      netYield: 0.02,
+    });
+  });
+
+  it('nunca deixa os impostos passarem do rendimento', () => {
+    const r = splitYield(0.005, 1);
+    expect(r.grossYield).toBe(0.01);
+    expect(r.iof + r.incomeTax).toBeLessThanOrEqual(r.grossYield);
+    expect(r.netYield).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('todayIso', () => {
+  it('usa o horário de Brasília, não UTC', () => {
+    // 07/10 às 22h46 em Brasília = 08/10 01h46 UTC
+    expect(todayIso(new Date('2026-10-08T01:46:00Z'))).toBe('2026-10-07');
+    expect(todayIso(new Date('2026-10-08T03:00:00Z'))).toBe('2026-10-08');
   });
 });

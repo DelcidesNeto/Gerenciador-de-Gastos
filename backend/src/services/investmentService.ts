@@ -15,7 +15,6 @@ import { roundMoney } from '../utils/money';
 import { CdiCacheService } from './cdi/cdiCacheService';
 import {
   calculateContributionPerformance,
-  scalePerformance,
   type ContributionPerformance,
 } from './yieldService';
 
@@ -406,19 +405,18 @@ export class InvestmentService {
     const remaining = roundMoney(contribution.amount - requested);
     const fullRedemption = remaining < MIN_REMAINING;
     const withdrawnPrincipal = fullRedemption ? contribution.amount : requested;
-    const share = withdrawnPrincipal / contribution.amount;
 
     const rateMap = await this.cdi.getRateMap(redemptionDate);
-    const full = calculateContributionPerformance(
+    const performance = calculateContributionPerformance(
       {
-        amount: contribution.amount,
+        amount: withdrawnPrincipal,
         date: contribution.date,
         cdiPercent: investment.cdiPercent,
       },
       rateMap,
       redemptionDate,
+      { projectUnpublished: redemptionDate > todayIso() },
     );
-    const performance = scalePerformance(full, share);
 
     return {
       investmentId,

@@ -1,4 +1,4 @@
-import { daysBetween, todayIso } from '../utils/dates';
+import { daysBetween } from '../utils/dates';
 import { roundMoney } from '../utils/money';
 import { calculateIncomeTax, getIncomeTaxRate } from './tax/incomeTax';
 import { calculateIOF, getIofRate } from './tax/iof';
@@ -28,19 +28,27 @@ export type ContributionPerformance = {
   lastKnownCdiDate: string | null;
 };
 
+export type PerformanceOptions = {
+  /**
+   * Projeta dias úteis sem taxa publicada com a última taxa conhecida.
+   * Só faz sentido em simulação de data futura; no saldo atual, dia sem taxa
+   * publicada ainda não rendeu.
+   */
+  projectUnpublished?: boolean;
+};
+
 /**
  * Calcula rendimento de um aporte com base nas taxas DI diárias.
  *
  * Metodologia:
  * 1. Para cada dia civil no intervalo [aporte, dataRef):
  *    - se houver taxa DI publicada, aplica fator = 1 + di * (cdiPercent/100);
- *    - se a data for posterior à última publicação e for dia útil (seg–sex),
- *      projeta com a última taxa conhecida (necessário para simulações futuras).
- * 2. Valor bruto = principal * produto(fatores).
- * 3. Rendimento bruto = valor bruto − principal.
- * 4. IOF sobre rendimento (se < 30 dias).
- * 5. IR sobre (rendimento bruto − IOF), tabela regressiva.
- * 6. Líquido = principal + rendimento − IOF − IR.
+ *    - com `projectUnpublished`, dias úteis após a última publicação usam a
+ *      última taxa conhecida.
+ * 2. Rendimento bruto = principal * produto(fatores) − principal.
+ * 3. IOF sobre rendimento (se < 30 dias).
+ * 4. IR sobre (rendimento bruto − IOF), tabela regressiva.
+ * 5. Líquido = bruto − IOF − IR, fechado em centavos (ver `splitYield`).
  *
  * Finais de semana / feriados históricos sem publicação não alteram o fator.
  */
@@ -48,6 +56,7 @@ export function calculateContributionPerformance(
   input: ContributionYieldInput,
   rateByDate: Map<string, number>,
   asOfDate: string,
+  options: PerformanceOptions = {},
 ): ContributionPerformance {
   if (asOfDate < input.date) {
     throw new Error('Data de referência não pode ser anterior ao aporte');
@@ -68,21 +77,19 @@ export function calculateContributionPerformance(
       continue;
     }
 
-    // Projeção só para dias úteis após a última taxa conhecida (simulação futura).
-    if (lastKnown && iso > lastKnown.date && isWeekday(iso)) {
+    if (
+      options.projectUnpublished &&
+      lastKnown &&
+      iso > lastKnown.date &&
+      isWeekday(iso)
+    ) {
       factor *= 1 + lastKnown.rate * pct;
       projectedBusinessDays += 1;
     }
   }
 
   const daysHeld = daysBetween(input.date, asOfDate);
-  const grossValue = input.amount * factor;
-  const grossYield = Math.max(0, grossValue - input.amount);
-  const iof = calculateIOF(daysHeld, grossYield);
-  const taxable = Math.max(0, grossYield - iof);
-  const incomeTax = calculateIncomeTax(daysHeld, taxable);
-  const netYield = grossYield - iof - incomeTax;
-  const netRedemptionValue = input.amount + netYield;
+  const yields = splitYield(Math.max(0, input.amount * factor - input.amount), daysHeld);
 
   return {
     principal: roundMoney(input.amount),
@@ -90,17 +97,43 @@ export function calculateContributionPerformance(
     asOfDate,
     daysHeld,
     cdiPercent: input.cdiPercent,
-    grossYield: roundMoney(grossYield),
-    iof: roundMoney(iof),
+    grossYield: yields.grossYield,
+    iof: yields.iof,
     iofRate: getIofRate(daysHeld),
-    incomeTax: roundMoney(incomeTax),
+    incomeTax: yields.incomeTax,
     incomeTaxRate: getIncomeTaxRate(daysHeld),
-    netYield: roundMoney(netYield),
-    currentValue: roundMoney(input.amount + grossYield),
-    netRedemptionValue: roundMoney(netRedemptionValue),
+    netYield: yields.netYield,
+    currentValue: roundMoney(input.amount + yields.grossYield),
+    netRedemptionValue: roundMoney(input.amount + yields.netYield),
     projectedBusinessDays,
     lastKnownCdiDate: lastKnown?.date ?? null,
   };
+}
+
+/**
+ * Converte o rendimento exato em centavos. Bruto, IOF e IR são arredondados a
+ * partir do valor exato; o líquido sai por subtração, para que
+ * bruto − IOF − IR = líquido sempre feche nos valores exibidos.
+ */
+export function splitYield(grossYieldExact: number, daysHeld: number) {
+  const iofExact = calculateIOF(daysHeld, grossYieldExact);
+  const incomeTaxExact = calculateIncomeTax(daysHeld, Math.max(0, grossYieldExact - iofExact));
+
+  const grossCents = toCents(grossYieldExact);
+  const iofCents = Math.min(toCents(iofExact), grossCents);
+  const incomeTaxCents = Math.min(toCents(incomeTaxExact), grossCents - iofCents);
+  const netCents = grossCents - iofCents - incomeTaxCents;
+
+  return {
+    grossYield: grossCents / 100,
+    iof: iofCents / 100,
+    incomeTax: incomeTaxCents / 100,
+    netYield: netCents / 100,
+  };
+}
+
+function toCents(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100);
 }
 
 function isWeekday(iso: string): boolean {
@@ -127,25 +160,3 @@ function findLastKnownRate(
   }
   return best;
 }
-
-/** Aplica a fração do principal resgatada (resgate parcial). Alíquotas não mudam. */
-export function scalePerformance(
-  performance: ContributionPerformance,
-  share: number,
-): ContributionPerformance {
-  const factor = Math.min(1, Math.max(0, share));
-  if (factor === 1) return performance;
-  return {
-    ...performance,
-    principal: roundMoney(performance.principal * factor),
-    grossYield: roundMoney(performance.grossYield * factor),
-    iof: roundMoney(performance.iof * factor),
-    incomeTax: roundMoney(performance.incomeTax * factor),
-    netYield: roundMoney(performance.netYield * factor),
-    currentValue: roundMoney(performance.currentValue * factor),
-    netRedemptionValue: roundMoney(performance.netRedemptionValue * factor),
-  };
-}
-
-/** Expõe todayIso para testes/callers que queiram ancorar projeção. */
-export { todayIso };

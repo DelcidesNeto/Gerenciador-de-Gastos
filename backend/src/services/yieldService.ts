@@ -111,17 +111,17 @@ export function calculateContributionPerformance(
 }
 
 /**
- * Converte o rendimento exato em centavos. Bruto, IOF e IR são arredondados a
- * partir do valor exato; o líquido sai por subtração, para que
+ * Converte o rendimento exato em centavos pelo critério dos bancos (Inter):
+ * o bruto é truncado, o IOF incide sobre o bruto truncado e o IR sobre
+ * (bruto − IOF), ambos também truncados. O líquido sai por subtração, para que
  * bruto − IOF − IR = líquido sempre feche nos valores exibidos.
  */
 export function splitYield(grossYieldExact: number, daysHeld: number) {
-  const iofExact = calculateIOF(daysHeld, grossYieldExact);
-  const incomeTaxExact = calculateIncomeTax(daysHeld, Math.max(0, grossYieldExact - iofExact));
-
-  const grossCents = toCents(grossYieldExact);
-  const iofCents = Math.min(toCents(iofExact), grossCents);
-  const incomeTaxCents = Math.min(toCents(incomeTaxExact), grossCents - iofCents);
+  const grossCents = truncateCents(grossYieldExact);
+  const iofCents = truncateCents(calculateIOF(daysHeld, grossCents / 100));
+  const incomeTaxCents = truncateCents(
+    calculateIncomeTax(daysHeld, (grossCents - iofCents) / 100),
+  );
   const netCents = grossCents - iofCents - incomeTaxCents;
 
   return {
@@ -132,8 +132,9 @@ export function splitYield(grossYieldExact: number, daysHeld: number) {
   };
 }
 
-function toCents(value: number): number {
-  return Math.round((value + Number.EPSILON) * 100);
+/** Folga para erro de ponto flutuante (0,29 * 100 = 28,999...). */
+function truncateCents(value: number): number {
+  return Math.floor(value * 100 + 1e-6);
 }
 
 function isWeekday(iso: string): boolean {

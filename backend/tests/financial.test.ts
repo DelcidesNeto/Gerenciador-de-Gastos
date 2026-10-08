@@ -101,19 +101,23 @@ describe('rendimento por aporte', () => {
     expect(result.netRedemptionValue).toBe(700);
   });
 
-  it('rende a partir da publicação da taxa do dia do aporte', () => {
-    const rates = new Map<string, number>([['2026-10-07', 0.00051]]);
-    const result = calculateContributionPerformance(
-      { amount: 700, date: '2026-10-07', cdiPercent: 100 },
-      rates,
-      '2026-10-08',
-    );
-    // 700 * 0,00051 = 0,357 → bruto 0,36; IOF 96% = 0,343 → 0,34; IR 22,5% de 0,014 → 0,00
-    expect(result.grossYield).toBe(0.36);
-    expect(result.iof).toBe(0.34);
-    expect(result.incomeTax).toBe(0);
-    expect(result.netYield).toBe(0.02);
-    expect(result.netRedemptionValue).toBe(700.02);
+  it('bate com o Inter após a publicação da taxa do dia do aporte', () => {
+    const rates = new Map<string, number>([['2026-10-07', 0.00050788]]);
+    const at = (amount: number) =>
+      calculateContributionPerformance(
+        { amount, date: '2026-10-07', cdiPercent: 100 },
+        rates,
+        '2026-10-08',
+      );
+
+    // 700 * 0,00050788 = 0,3555 → bruto 0,35; IOF 96% de 0,35 = 0,336 → 0,33
+    const r700 = at(700);
+    expect(r700.currentValue).toBe(700.35);
+    expect(r700.iof).toBe(0.33);
+    expect(r700.incomeTax).toBe(0);
+    expect(r700.netRedemptionValue).toBe(700.02);
+    expect(at(200).netRedemptionValue).toBe(200.01);
+    expect(at(114).netRedemptionValue).toBe(114.01);
   });
 
   it('bruto − IOF − IR fecha com o líquido em centavos', () => {
@@ -137,20 +141,23 @@ describe('rendimento por aporte', () => {
 });
 
 describe('splitYield', () => {
-  it('arredonda cada parcela pelo valor exato e deriva o líquido', () => {
+  it('trunca bruto e impostos no centavo e deriva o líquido', () => {
     expect(splitYield(0.357, 1)).toEqual({
-      grossYield: 0.36,
-      iof: 0.34,
+      grossYield: 0.35,
+      iof: 0.33,
       incomeTax: 0,
       netYield: 0.02,
     });
   });
 
-  it('nunca deixa os impostos passarem do rendimento', () => {
-    const r = splitYield(0.005, 1);
-    expect(r.grossYield).toBe(0.01);
-    expect(r.iof + r.incomeTax).toBeLessThanOrEqual(r.grossYield);
-    expect(r.netYield).toBeGreaterThanOrEqual(0);
+  it('não perde centavo por erro de ponto flutuante', () => {
+    // 0,29 * 100 = 28,999... em ponto flutuante; IR 22,5% de 0,29 = 0,06525
+    expect(splitYield(0.29, 30)).toEqual({
+      grossYield: 0.29,
+      iof: 0,
+      incomeTax: 0.06,
+      netYield: 0.23,
+    });
   });
 });
 
